@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0b14">
+<meta name="robots" content="noindex">
+<title>Your clue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="wrap">
+  <header class="team-line">
+    <span class="team" id="team-name"></span>
+    <span class="count" id="count"></span>
+  </header>
+  <div class="dots" id="dots" role="img"></div>
+
+  <p class="notice" id="flash" role="status" aria-live="polite"></p>
+
+  <div id="view" aria-live="polite">
+    <section class="card"><div class="waiting"><span class="spinner"></span><span class="dim">Loading your clue…</span></div></section>
+  </div>
+
+  <button class="footer-link" id="switch">Wrong team? Switch</button>
+</main>
+
+<script src="assets/config.js"></script>
+<script src="assets/app.js"></script>
+<script>
+(function () {
+  const team = Hunt.getTeam();
+  if (!team) { location.replace('index.html'); return; }
+
+  const $ = function (id) { return document.getElementById(id); };
+  const el = Hunt.el;
+  const view = $('view');
+  const flash = $('flash');
+  let state = null;
+  let timer = null;
+  let busy = false;       // true while uploading, so polls don't redraw the form
+  let lastKey = '';
+
+  $('team-name').textContent = team;
+
+  const f = Hunt.takeFlash();
+  if (f) showFlash(f.msg, f.kind);
+
+  function showFlash(text, kind) {
+    flash.textContent = text || '';
+    flash.className = 'notice ' + (kind || 'ok');
+  }
+
+  function schedule() {
+    clearTimeout(timer);
+    if (state && state.finished) return;
+    const pending = state && state.status === 'Pending';
+    timer = setTimeout(refresh, pending ? Hunt.cfg.POLL_PENDING_MS : Hunt.cfg.POLL_IDLE_MS);
+  }
+
+  async function refresh() {
+    if (document.hidden) { schedule(); return; }
+    try {
+      const s = await Hunt.get('state', { team: team });
+      if (s.status === 'Waiting') {
+        await Hunt.post('join', { team: team });
+        return refresh();
+      }
+      const moved = state && s.index !== state.index;
+      if (moved && state.status === 'Pending') showFlash('Approved. Here is your next clue.', 'ok');
+      state = s;
+      render();
+    } catch (e) {
+      if (!state) view.innerHTML = '';
+      if (!state) view.appendChild(el('section', { class: 'card' }, [el('p', { class: 'notice bad', text: e.message })]));
+      else showFlash('Connection wobble. Retrying…', 'bad');
+    }
+    schedule();
+  }
+
+  function render() {
+    const s = state;
+    Hunt.renderDots($('dots'), s.index, s.total, s.finished);
+    $('count').textContent = s.finished ? 'Finished' : 'Stop ' + (s.index + 1) + ' of ' + s.total;
+
+    // Only rebuild when something meaningful changed.
+    const key = [s.index, s.status, s.finished, s.rejectionNote || ''].join('|');
+    if (key === lastKey || busy) return;
+    const isNew = lastKey !== '';
+    lastKey = key;
+
+    view.innerHTML = '';
+    const card = el('section', { class: 'card' + (isNew ? ' reveal' : '') });
+    view.appendChild(card);
+
+    if (s.finished) {
+      card.appendChild(el('h2', { text: 'You made it.' }));
+      if (s.place) {
+        card.appendChild(el('div', { class: 'finish-place', text: ordinal(s.place) }));
+        card.appendChild(el('p', { class: 'dim', text: s.place === 1 ? 'First crew home. Drinks are on the losers.' : 'Crew home. Get to the bar.' }));
+      }
+      return;
+    }
+
+    const stop = s.stop;
+    card.appendChild(el('h2', { text: stop.isFinal ? 'Last stop' : 'Your clue' }));
+    card.appendChild(el('p', { class: 'clue', text: stop.clue }));
+
+    if (stop.needsScan) {
+      card.appendChild(el('p', { class: 'dim', text: stop.isFinal
+        ? 'When you get there, find the QR and scan it with your phone camera to finish.'
+        : 'Find the hidden QR and scan it with your phone camera.' }));
+    }
+
+    if (stop.task) card.appendChild(el('p', { class: 'task', text: stop.task }));
+
+    if (s.status === 'Pending') {
+      card.appendChild(el('div', { class: 'waiting' }, [
+        el('span', { class: 'spinner' }),
+        el('span', { text: 'Sent. Waiting for the judges. Your next clue appears here the moment it is approved.' })
+      ]));
+      return;
+    }
+
+    if (s.status === 'Rejected') {
+      card.appendChild(el('p', { class: 'notice bad', text: s.rejectionNote
+        ? 'Rejected: ' + s.rejectionNote
+        : 'Rejected. The judges want another go.' }));
+    }
+
+    if (stop.canUpload) card.appendChild(uploadWidget(stop));
+  }
+
+  function uploadWidget(stop) {
+    const wantsVideo = stop.mediaKind === 'video';
+    const box = el('div', { class: 'btn-row' });
+    const note = el('p', { class: 'dim', text: wantsVideo
+      ? 'Film it and send it here. Keep it under 30 seconds.'
+      : 'Snap it and send it here. Videos work too (under 30 seconds).' });
+    const status = el('p', { class: 'notice', role: 'status' });
+
+    function picker(label, accept, capture, primary) {
+      const input = el('input', { type: 'file', accept: accept, capture: capture || false, class: 'visually-hidden', 'aria-hidden': 'true', tabindex: '-1' });
+      const btn = el('button', { class: primary ? 'btn' : 'btn secondary', type: 'button', text: label,
+        onclick: function () { input.click(); } });
+      input.addEventListener('change', function () { if (input.files && input.files[0]) send(input.files[0]); input.value = ''; });
+      box.appendChild(btn);
+      box.appendChild(input);
+    }
+
+    async function send(file) {
+      busy = true;
+      box.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+      status.className = 'notice';
+      status.textContent = 'Uploading… keep this page open.';
+      try {
+        const payload = await Hunt.prepareUpload(file);
+        const s = await Hunt.post('upload', Object.assign({ team: team }, payload));
+        busy = false;
+        state = s;
+        render();
+        schedule();
+      } catch (e) {
+        busy = false;
+        status.className = 'notice bad';
+        status.textContent = e.message;
+        box.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+      }
+    }
+
+    box.appendChild(note);
+    if (wantsVideo) {
+      picker('Record video', 'video/*', 'environment', true);
+      picker('Take photo instead', 'image/*', 'environment', false);
+    } else {
+      picker('Take photo', 'image/*', 'environment', true);
+      picker('Record video', 'video/*', 'environment', false);
+    }
+    picker('Choose from library', 'image/*,video/*', null, false);
+    box.appendChild(status);
+    return box;
+  }
+
+  function ordinal(n) {
+    const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+
+  $('switch').addEventListener('click', function () {
+    if (confirm('Leave ' + team + ' on this phone? Your team keeps its progress.')) {
+      Hunt.clearTeam();
+      location.replace('index.html');
+    }
+  });
+
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh(); });
+  refresh();
+})();
+</script>
+</body>
+</html>

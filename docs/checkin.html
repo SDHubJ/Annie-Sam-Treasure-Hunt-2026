@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0b14">
+<meta name="robots" content="noindex">
+<title>Checking in…</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="wrap">
+  <section class="card" id="card" aria-live="polite">
+    <div class="waiting"><span class="spinner"></span><span>Checking your find…</span></div>
+  </section>
+</main>
+
+<script src="assets/config.js"></script>
+<script src="assets/app.js"></script>
+<script>
+(async function () {
+  const code = new URLSearchParams(location.search).get('c') || '';
+  const card = document.getElementById('card');
+  const el = Hunt.el;
+
+  function fail(text) {
+    card.innerHTML = '';
+    card.appendChild(el('h2', { text: 'Not quite' }));
+    card.appendChild(el('p', { class: 'notice bad', text: text }));
+    card.appendChild(el('a', { class: 'btn', href: 'hunt.html', text: 'Back to my clue' }));
+  }
+
+  if (!code) return fail("This QR is missing its code. Keep hunting.");
+
+  // No team on this phone yet: remember the scan, join first, then come back.
+  if (!Hunt.getTeam()) {
+    Hunt.setPendingCode(code);
+    location.replace('index.html');
+    return;
+  }
+
+  try {
+    const s = await Hunt.post('checkin', { team: Hunt.getTeam(), code: code });
+    Hunt.setFlash(s.message || 'Checked in.', 'ok');
+    location.replace('hunt.html');
+  } catch (e) {
+    fail(e.message);
+  }
+})();
+</script>
+</body>
+</html>

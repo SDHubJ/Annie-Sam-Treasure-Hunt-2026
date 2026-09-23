@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0b14">
+<meta name="robots" content="noindex">
+<title>Annie &amp; Sam's Treasure Hunt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="wrap">
+  <header class="masthead">
+    <p class="kicker">Annie &amp; Sam's Birthday</p>
+    <h1>You found it.<br>Now find the rest.</h1>
+  </header>
+
+  <section class="card">
+    <p class="clue">Eight stops. Six crews.
+Everyone's route is different,
+so don't follow the pack.</p>
+  </section>
+
+  <section class="card" aria-labelledby="join-title">
+    <h2 id="join-title">Which crew are you in?</h2>
+    <label class="field">
+      <span class="visually-hidden">Your team</span>
+      <select id="team" disabled>
+        <option value="">Loading teams…</option>
+      </select>
+    </label>
+    <button class="btn" id="join" disabled>Start hunting</button>
+    <p class="notice" id="msg" role="status" aria-live="polite"></p>
+  </section>
+</main>
+
+<script src="assets/config.js"></script>
+<script src="assets/app.js"></script>
+<script>
+(async function () {
+  const select = document.getElementById('team');
+  const btn = document.getElementById('join');
+  const msg = document.getElementById('msg');
+
+  function show(text, kind) { msg.textContent = text; msg.className = 'notice ' + (kind || ''); }
+
+  // Already on a team: skip straight to the clue (or finish a pending scan).
+  if (Hunt.getTeam()) {
+    const code = Hunt.takePendingCode();
+    location.replace(code ? 'checkin.html?c=' + encodeURIComponent(code) : 'hunt.html');
+    return;
+  }
+
+  try {
+    const data = await Hunt.get('teams');
+    select.innerHTML = '';
+    select.appendChild(Hunt.el('option', { value: '', text: 'Choose your team' }));
+    data.teams.forEach(function (t) { select.appendChild(Hunt.el('option', { value: t, text: t })); });
+    select.disabled = false;
+  } catch (e) {
+    select.innerHTML = '<option value="">Teams unavailable</option>';
+    show(e.message, 'bad');
+  }
+
+  select.addEventListener('change', function () { btn.disabled = !select.value; });
+
+  btn.addEventListener('click', async function () {
+    const team = select.value;
+    if (!team) return;
+    btn.disabled = true;
+    btn.textContent = 'Starting…';
+    show('');
+    try {
+      await Hunt.post('join', { team: team });
+      Hunt.setTeam(team);
+      const code = Hunt.takePendingCode();
+      location.replace(code ? 'checkin.html?c=' + encodeURIComponent(code) : 'hunt.html');
+    } catch (e) {
+      show(e.message, 'bad');
+      btn.disabled = false;
+      btn.textContent = 'Start hunting';
+    }
+  });
+})();
+</script>
+</body>
+</html>
