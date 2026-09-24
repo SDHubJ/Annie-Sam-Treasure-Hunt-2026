@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffc9df">
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Space+Grotesk:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets/style.css?v=2">
+<title>Treasure Hunt Gallery</title>
+<style>
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 8px; scrollbar-width: none; }
+  .chip { flex: 0 0 auto; font: inherit; font-size: 14px; font-weight: 700; color: var(--ink); background: #fff;
+    border: var(--line); border-radius: 999px; padding: 8px 14px; min-height: 40px; cursor: pointer; white-space: nowrap; }
+  .chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+  .grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  @media (min-width: 700px) { .wrap.wide { max-width: 980px; } .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  .tile { background: #fff; border: var(--line); border-radius: 16px; box-shadow: var(--shadow-sm); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .tile button.media { position: relative; display: block; width: 100%; padding: 0; border: 2px solid var(--ink); border-radius: 10px; overflow: hidden; cursor: pointer;
+    aspect-ratio: 1 / 1; background: repeating-linear-gradient(45deg, #fff4f9 0 10px, #ffe3ef 10px 20px); }
+  .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .play { position: absolute; inset: 0; margin: auto; width: 52px; height: 52px; border-radius: 50%; background: var(--pink); border: var(--line);
+    display: flex; align-items: center; justify-content: center; }
+  .tile .meta { display: flex; flex-direction: column; gap: 0; padding: 0 2px 2px; }
+  .tile .meta strong { font-family: var(--display); font-weight: 400; font-size: 16px; line-height: 1.15; }
+  .tile .meta span { font-size: 12px; color: var(--ink-soft); font-weight: 500; }
+  .tag { align-self: flex-start; font-family: var(--mono); font-size: 11px; background: var(--banana); border: 2px solid var(--ink); border-radius: 999px; padding: 1px 8px; }
+  dialog { border: var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 12px; width: min(92vw, 720px); background: #fff; color: var(--ink); }
+  dialog::backdrop { background: rgba(34, 16, 31, 0.7); }
+  dialog .frame { width: 100%; aspect-ratio: 9 / 16; max-height: 72vh; border: 2px solid var(--ink); border-radius: 10px; display: block; background: #000; }
+  dialog img.frame { aspect-ratio: auto; object-fit: contain; background: #fff4f9; }
+  dialog .bar-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
+  dialog .bar-top strong { font-family: var(--display); font-weight: 400; font-size: 20px; }
+  .close { font: inherit; font-weight: 700; background: #fff; border: var(--line); border-radius: 999px; padding: 6px 14px; min-height: 40px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="page">
+<svg class="sticker banana" viewBox="0 0 150 108" fill="none" aria-hidden="true" style="right: 14px; top: 58px; transform: rotate(-14deg);"><path d="M14 18 C 26 78, 104 96, 136 48 C 128 52, 118 58, 104 60 C 72 64, 40 50, 26 16 Z" fill="#FFD93B" stroke="#22101F" stroke-width="5" stroke-linejoin="round"/><path d="M30 26 C 46 56, 80 66, 116 56" stroke="#D9A91A" stroke-width="4" stroke-linecap="round"/><path d="M14 18 L20 8 L28 14 L26 16" fill="#6B4E12" stroke="#22101F" stroke-width="5" stroke-linejoin="round"/></svg>
+<main class="wrap wide">
+  <div class="topbar">
+    <span class="brand">A&amp;S Treasure Hunt 2026</span>
+    <a class="pill" href="leaderboard.html"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>Leaderboard</a>
+  </div>
+
+  <h1 class="title">The <span class="hl">Gallery</span></h1>
+  <p class="dim" id="count"
