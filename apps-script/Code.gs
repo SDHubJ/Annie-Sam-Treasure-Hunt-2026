@@ -9,6 +9,7 @@
  *   GET  ?action=ping
  *   GET  ?action=teams                      -> list of team names + captains
  *   GET  ?action=leaderboard                -> crews' progress, finish times, shared clock
+ *   GET  ?action=gallery                    -> every photo/video upload (rejected ones left out)
  *   GET  ?action=state&team=NAME            -> team's live state + current clue
  *   POST action=join&team=NAME              -> start the team (idempotent)
  *   POST action=checkin&team=NAME&code=TOK  -> scan a location QR
@@ -62,6 +63,7 @@ function handle_(e, isPost) {
       case 'ping':    out = { ok: true, message: 'Treasure hunt API is running.' }; break;
       case 'teams':   out = { ok: true, teams: listTeams_(), captains: captains_() }; break;
       case 'leaderboard': out = leaderboard_(); break;
+      case 'gallery': out = gallery_(); break;
       case 'state':   out = getState_(p.team); break;
       case 'join':    out = join_(p.team); break;
       case 'checkin': out = checkin_(p.team, p.code); break;
@@ -921,4 +923,44 @@ function applyStopSettings() {
   const msg = problems.length ? 'Applied, but check: ' + problems.join('; ') : 'Stop settings applied.';
   console.log(msg);
   return msg;
+}
+
+/* ------------------------------------------------------------------ */
+/* Gallery: every upload except rejected ones                          */
+/* ------------------------------------------------------------------ */
+
+function gallery_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('gallery');
+  if (hit) return JSON.parse(hit);
+
+  const sh = sheet_(SHEETS.APPROVALS);
+  const range = sh.getDataRange();
+  const vals = range.getValues();
+  const formulas = range.getFormulas();
+  const h = indexHeaders_(vals[0]);
+  const locs = locations_();
+  const items = [];
+  for (let i = 1; i < vals.length; i++) {
+    const r = vals[i];
+    const status = String(r[h['Status']] || 'Pending').trim();
+    if (!r[h['Team']] || status === 'Rejected') continue;
+    const m = String(formulas[i][h['File']] || '').match(/\/d\/([\w-]+)/);
+    if (!m) continue;
+    const loc = locs[norm_(r[h['Location']])];
+    const isEnd = loc && loc.type === 'end';
+    const kind = isEnd ? 'selfie' : String(r[h['Kind']] || 'photo');
+    items.push({
+      id: m[1],
+      team: String(r[h['Team']]),
+      kind: kind,
+      label: isEnd ? 'Crew selfie' : (kind === 'video' ? 'Bubblegum' : 'Album cover'),
+      time: r[h['Submitted']] instanceof Date ? r[h['Submitted']].toISOString() : null,
+      approved: status === 'Approved'
+    });
+  }
+  items.sort(function (a, b) { return (b.time || '') < (a.time || '') ? -1 : 1; });
+  const out = { ok: true, items: items };
+  cache.put('gallery', JSON.stringify(out), 15);
+  return out;
 }
