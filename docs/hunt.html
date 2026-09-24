@@ -3,33 +3,41 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0d0b14">
+<meta name="theme-color" content="#ffc9df">
 <meta name="robots" content="noindex">
-<title>Your clue</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Space+Grotesk:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets/style.css?v=2">
+<title>Your clue</title>
 </head>
 <body>
+<div class="page">
+<svg class="sticker banana" viewBox="0 0 150 108" fill="none" aria-hidden="true" style="right: -20px; bottom: 30px; transform: rotate(24deg);"><path d="M14 18 C 26 78, 104 96, 136 48 C 128 52, 118 58, 104 60 C 72 64, 40 50, 26 16 Z" fill="#FFD93B" stroke="#22101F" stroke-width="5" stroke-linejoin="round"/><path d="M30 26 C 46 56, 80 66, 116 56" stroke="#D9A91A" stroke-width="4" stroke-linecap="round"/><path d="M14 18 L20 8 L28 14 L26 16" fill="#6B4E12" stroke="#22101F" stroke-width="5" stroke-linejoin="round"/></svg>
 <main class="wrap">
-  <header class="team-line">
+  <div class="topbar">
+    <span class="brand">A&amp;S Treasure Hunt 2026</span>
+    <a class="pill" href="leaderboard.html"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>Leaderboard</a>
+  </div>
+
+  <div class="team-line">
     <span class="team" id="team-name"></span>
-    <span class="count" id="count"></span>
-  </header>
+    <span class="pill" id="count"></span>
+  </div>
   <div class="dots" id="dots" role="img"></div>
 
   <p class="notice" id="flash" role="status" aria-live="polite"></p>
 
-  <div id="view" aria-live="polite">
-    <section class="card"><div class="waiting"><span class="spinner"></span><span class="dim">Loading your clue…</span></div></section>
+  <div id="view" aria-live="polite" style="display: flex; flex-direction: column; gap: 18px;">
+    <section class="card"><div class="waiting"><span class="spinner"></span><span>Loading your clue…</span></div></section>
   </div>
 
-  <button class="footer-link" id="switch">Wrong team? Switch</button>
+  <button class="footer-link hidden" id="switch" type="button">Wrong crew? Switch (once only)</button>
 </main>
+</div>
 
-<script src="assets/config.js"></script>
-<script src="assets/app.js"></script>
+<script src="assets/config.js?v=2"></script>
+<script src="assets/app.js?v=2"></script>
 <script>
 (function () {
   const team = Hunt.getTeam();
@@ -41,10 +49,11 @@
   const flash = $('flash');
   let state = null;
   let timer = null;
-  let busy = false;       // true while uploading, so polls don't redraw the form
+  let busy = false;
   let lastKey = '';
 
   $('team-name').textContent = team;
+  if (Hunt.switchesLeft() > 0) $('switch').classList.remove('hidden');
 
   const f = Hunt.takeFlash();
   if (f) showFlash(f.msg, f.kind);
@@ -69,83 +78,103 @@
         await Hunt.post('join', { team: team });
         return refresh();
       }
-      const moved = state && s.index !== state.index;
-      if (moved && state.status === 'Pending') showFlash('Approved. Here is your next clue.', 'ok');
+      if (state && state.status === 'Pending' && s.index !== state.index) showFlash('Approved. Here is your next clue.', 'ok');
+      if (state && !state.finished && s.finished) showFlash('Selfie approved. You are officially home.', 'ok');
       state = s;
       render();
     } catch (e) {
-      if (!state) view.innerHTML = '';
-      if (!state) view.appendChild(el('section', { class: 'card' }, [el('p', { class: 'notice bad', text: e.message })]));
-      else showFlash('Connection wobble. Retrying…', 'bad');
+      if (!state) {
+        view.innerHTML = '';
+        view.appendChild(el('section', { class: 'card' }, [el('p', { class: 'notice bad', text: e.message })]));
+      } else {
+        showFlash('Connection wobble. Retrying…', 'bad');
+      }
     }
     schedule();
   }
 
   function render() {
     const s = state;
-    Hunt.renderDots($('dots'), s.index, s.total, s.finished);
-    $('count').textContent = s.finished ? 'Finished' : 'Stop ' + (s.index + 1) + ' of ' + s.total;
+    Hunt.renderDots($('dots'), s.index, s.total, s.finished || !!s.finishedAt);
+    $('count').textContent = s.finished ? 'FINISHED' : 'STOP ' + (s.index + 1) + '/' + s.total;
 
-    // Only rebuild when something meaningful changed.
-    const key = [s.index, s.status, s.finished, s.rejectionNote || ''].join('|');
+    const key = [s.index, s.status, s.finished, s.rejectionNote || '', s.selfieUrl || ''].join('|');
     if (key === lastKey || busy) return;
     const isNew = lastKey !== '';
     lastKey = key;
-
     view.innerHTML = '';
-    const card = el('section', { class: 'card' + (isNew ? ' reveal' : '') });
-    view.appendChild(card);
 
-    if (s.finished) {
-      card.appendChild(el('h2', { text: 'You made it.' }));
-      if (s.place) {
-        card.appendChild(el('div', { class: 'finish-place', text: ordinal(s.place) }));
-        card.appendChild(el('p', { class: 'dim', text: s.place === 1 ? 'First crew home. Drinks are on the losers.' : 'Crew home. Get to the bar.' }));
-      }
-      return;
-    }
+    // Finish line: finished, or selfie sent and waiting / rejected. No switching after this.
+    if (s.finished || s.finishedAt) { $('switch').classList.add('hidden'); renderFinish(s, isNew); return; }
 
     const stop = s.stop;
+    const card = el('section', { class: 'card' + (isNew ? ' reveal' : '') });
+    view.appendChild(card);
     card.appendChild(el('h2', { text: stop.isFinal ? 'Last stop' : 'Your clue' }));
     card.appendChild(el('p', { class: 'clue', text: stop.clue }));
 
-    if (stop.needsScan) {
-      card.appendChild(el('p', { class: 'dim', text: stop.isFinal
-        ? 'When you get there, find the QR and scan it with your phone camera to finish.'
-        : 'Find the hidden QR and scan it with your phone camera.' }));
-    }
+    if (stop.needsScan) card.appendChild(el('p', { class: 'dim', style: 'font-weight: 500;', text: 'Found it? Open your camera and scan the QR.' }));
 
-    if (stop.task) card.appendChild(el('p', { class: 'task', text: stop.task }));
+    if (stop.task) {
+      const t = el('div', { class: 'task' });
+      if (stop.type === 'end') t.appendChild(el('strong', { text: 'Final task' }));
+      t.appendChild(document.createTextNode(stop.task));
+      card.appendChild(t);
+    }
 
     if (s.status === 'Pending') {
-      card.appendChild(el('div', { class: 'waiting' }, [
-        el('span', { class: 'spinner' }),
-        el('span', { text: 'Sent. Waiting for the judges. Your next clue appears here the moment it is approved.' })
-      ]));
+      card.appendChild(el('div', { class: 'waiting' }, [el('span', { class: 'spinner' }),
+        el('span', { text: 'Sent. Waiting for the judges. Your next clue appears here the moment it is approved.' })]));
       return;
     }
-
     if (s.status === 'Rejected') {
-      card.appendChild(el('p', { class: 'notice bad', text: s.rejectionNote
-        ? 'Rejected: ' + s.rejectionNote
-        : 'Rejected. The judges want another go.' }));
+      card.appendChild(el('p', { class: 'notice bad', text: s.rejectionNote ? 'Rejected: ' + s.rejectionNote : 'Rejected. The judges want another go.' }));
     }
-
-    if (stop.canUpload) card.appendChild(uploadWidget(stop));
+    if (stop.canUpload) card.appendChild(uploadWidget(stop.type));
   }
 
-  function uploadWidget(stop) {
-    const wantsVideo = stop.mediaKind === 'video';
-    const box = el('div', { class: 'btn-row' });
-    const note = el('p', { class: 'dim', text: wantsVideo
-      ? 'Film it and send it here. Keep it under 30 seconds.'
-      : 'Snap it and send it here. Videos work too (under 30 seconds).' });
-    const status = el('p', { class: 'notice', role: 'status' });
+  function renderFinish(s, isNew) {
+    const polaroid = el('div', { class: 'polaroid' + (isNew ? ' reveal' : '') });
+    if (s.selfieUrl) {
+      const img = el('img', { class: 'photo', src: s.selfieUrl, alt: team + ' crew selfie' });
+      img.addEventListener('error', function () { img.removeAttribute('src'); });
+      polaroid.appendChild(img);
+    } else {
+      polaroid.appendChild(el('div', { class: 'photo', role: 'img', 'aria-label': 'Crew selfie' }));
+    }
+    polaroid.appendChild(el('div', { class: 'caption' }, [el('strong', { text: team }), el('span', { text: 'The Perseverance' })]));
+    view.appendChild(polaroid);
 
-    function picker(label, accept, capture, primary) {
+    view.appendChild(el('div', { class: 'stats' }, [
+      el('div', { class: 'stat' }, [el('span', { class: 'label', text: 'Place' }), el('span', { class: 'big', text: s.place ? Hunt.ordinal(s.place) : '–' })]),
+      el('div', { class: 'stat' }, [el('span', { class: 'label', text: 'Clock stopped' }), el('span', { class: 'time', text: Hunt.fmtClock(s.elapsedMs) })])
+    ]));
+
+    if (s.finished) {
+      view.appendChild(el('p', { class: 'notice ok', text: s.place === 1 ? 'First crew home. Drinks are on the losers.' : 'Crew home. Get to the bar.' }));
+      return;
+    }
+    if (s.status === 'Rejected') {
+      const card = el('section', { class: 'card' });
+      card.appendChild(el('p', { class: 'notice bad', text: (s.rejectionNote ? 'Retake: ' + s.rejectionNote : 'Retake needed.') + ' Your time stands.' }));
+      card.appendChild(uploadWidget('end'));
+      view.appendChild(card);
+      return;
+    }
+    view.appendChild(el('p', { class: 'notice soft' }, [el('span', { class: 'waiting' }, [el('span', { class: 'spinner' }), el('span', { text: 'Judges are checking your selfie. Get to the bar.' })])]));
+  }
+
+  function uploadWidget(type) {
+    const box = el('div', { class: 'btn-row' });
+    const status = el('p', { class: 'notice', role: 'status' });
+    const isVideo = type === 'video';
+    const accept = isVideo ? 'video/*' : 'image/*';
+    const primary = type === 'end' ? 'Take crew selfie' : (isVideo ? 'Record video' : 'Take photo');
+    const note = type === 'end' ? null : (isVideo ? 'Film it and send it here. Keep it under 30 seconds.' : 'Snap it and send it here.');
+
+    function picker(label, capture, cls) {
       const input = el('input', { type: 'file', accept: accept, capture: capture || false, class: 'visually-hidden', 'aria-hidden': 'true', tabindex: '-1' });
-      const btn = el('button', { class: primary ? 'btn' : 'btn secondary', type: 'button', text: label,
-        onclick: function () { input.click(); } });
+      const btn = el('button', { class: cls, type: 'button', text: label, onclick: function () { input.click(); } });
       input.addEventListener('change', function () { if (input.files && input.files[0]) send(input.files[0]); input.value = ''; });
       box.appendChild(btn);
       box.appendChild(input);
@@ -157,10 +186,12 @@
       status.className = 'notice';
       status.textContent = 'Uploading… keep this page open.';
       try {
-        const payload = await Hunt.prepareUpload(file);
+        const payload = await Hunt.prepareUpload(file, isVideo ? 'video' : 'photo');
         const s = await Hunt.post('upload', Object.assign({ team: team }, payload));
         busy = false;
+        if (s.message) showFlash(s.message, 'ok');
         state = s;
+        lastKey = '';
         render();
         schedule();
       } catch (e) {
@@ -171,26 +202,16 @@
       }
     }
 
-    box.appendChild(note);
-    if (wantsVideo) {
-      picker('Record video', 'video/*', 'environment', true);
-      picker('Take photo instead', 'image/*', 'environment', false);
-    } else {
-      picker('Take photo', 'image/*', 'environment', true);
-      picker('Record video', 'video/*', 'environment', false);
-    }
-    picker('Choose from library', 'image/*,video/*', null, false);
+    if (note) box.appendChild(el('p', { class: 'dim', style: 'font-size: 14px;', text: note }));
+    picker(primary, type === 'end' ? 'user' : 'environment', 'btn pink');
+    picker('Choose from library', null, 'btn secondary');
     box.appendChild(status);
     return box;
   }
 
-  function ordinal(n) {
-    const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
-    return n + (s[(v - 20) % 10] || s[v] || s[0]);
-  }
-
   $('switch').addEventListener('click', function () {
-    if (confirm('Leave ' + team + ' on this phone? Your team keeps its progress.')) {
+    if (confirm('Switch crews? You can only do this once. ' + team + ' keeps its progress.')) {
+      Hunt.useSwitch();
       Hunt.clearTeam();
       location.replace('index.html');
     }

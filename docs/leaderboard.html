@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffc9df">
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Space+Grotesk:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets/style.css?v=2">
+<title>Leaderboard</title>
+</head>
+<body>
+<div class="page">
+<svg class="sticker croc" viewBox="0 0 190 92" fill="none" aria-hidden="true"><path d="M6 92 L6 58 Q 10 34 40 30 L150 22 Q 184 22 186 44 Q 186 58 170 60 L150 62 L150 92 Z" fill="#1E9E5A" stroke="#22101F" stroke-width="4" stroke-linejoin="round"/><path d="M40 30 Q 44 6 66 8 Q 86 10 84 30" fill="#1E9E5A" stroke="#22101F" stroke-width="4"/><circle cx="64" cy="22" r="9" fill="#FFFFFF" stroke="#22101F" stroke-width="3"/><ellipse cx="66" cy="22" rx="2.5" ry="6" fill="#22101F"/><path d="M60 60 l8 -8 l8 8 l8 -8 l8 8 l8 -8 l8 8 l8 -8 l8 8" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="round"/><circle cx="172" cy="34" r="3" fill="#22101F"/></svg>
+<main class="wrap">
+  <div class="topbar">
+    <a class="pill" id="back" href="hunt.html">&larr; Back to my clue</a>
+    <span class="brand">Auto-updates</span>
+  </div>
+
+  <h1 class="title">Leaderboard</h1>
+
+  <section class="card tilt" aria-labelledby="clock-label">
+    <span class="brand" id="clock-label">Hunt clock</span>
+    <span class="clock" id="clock" role="timer" aria-live="off">0:00:00</span>
+    <p class="dim" id="clock-note" style="font-size: 14px;">Starts when the first crew sets off.</p>
+  </section>
+
+  <ol class="board" id="board" aria-live="polite">
+    <li class="row"><span class="spinner"></span><span>Loading crews…</span><span></span></li>
+  </ol>
+  <p class="notice bad" id="msg" role="status"></p>
+</main>
+</div>
+
+<script src="assets/config.js?v=2"></script>
+<script src="assets/app.js?v=2"></script>
+<script>
+(function () {
+  const $ = function (id) { return document.getElementById(id); };
+  const el = Hunt.el;
+  const mine = Hunt.getTeam();
+  if (!mine) { $('back').href = 'index.html'; $('back').innerHTML = '&larr; Start'; }
+  let timer = null;
+
+  function statusText(r) {
+    if (r.finished) return Hunt.fmtClock(r.elapsedMs);
+    if (r.checking) return Hunt.fmtClock(r.elapsedMs);
+    if (r.status === 'Waiting') return 'Not started';
+    return r.cleared + '/' + r.total;
+  }
+  function subText(r) {
+    if (r.finished) return 'Home at the Perseverance';
+    if (r.checking) return 'Selfie with the judges';
+    if (r.status === 'Waiting') return 'Still at the pub';
+    return r.cleared === 1 ? '1 stop cleared' : r.cleared + ' stops cleared';
+  }
+
+  async function load() {
+    try {
+      const d = await Hunt.get('leaderboard');
+      $('msg').textContent = '';
+      Hunt.runClock($('clock'), d.huntStart, d.serverNow);
+      $('clock-note').textContent = d.huntStart
+        ? 'Running since ' + new Date(d.huntStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '.'
+        : 'Starts when the first crew sets off.';
+      const board = $('board');
+      board.innerHTML = '';
+      d.teams.forEach(function (r) {
+        const pct = r.total ? Math.round(100 * r.cleared / r.total) : 0;
+        const bar = el('div', { class: 'bar', 'aria-hidden': 'true' }, [el('span', { style: 'width: ' + pct + '%;' })]);
+        board.appendChild(el('li', { class: 'row' + (r.team === mine ? ' mine' : '') }, [
+          el('span', { class: 'rank', text: String(r.rank) }),
+          el('div', {}, [el('div', { class: 'name', text: r.team }), el('div', { class: 'sub', text: subText(r) }), bar]),
+          el('span', { class: 'right', text: statusText(r) })
+        ]));
+      });
+    } catch (e) {
+      $('msg').textContent = e.message;
+    }
+    clearTimeout(timer);
+    timer = setTimeout(load, 20000);
+  }
+
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) load(); });
+  load();
+})();
+</script>
+</body>
+</html>

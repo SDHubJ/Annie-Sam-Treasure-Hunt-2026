@@ -7,7 +7,8 @@
  *
  * Endpoints (all return JSON):
  *   GET  ?action=ping
- *   GET  ?action=teams                      -> list of team names
+ *   GET  ?action=teams                      -> list of team names + captains
+ *   GET  ?action=leaderboard                -> crews' progress, finish times, shared clock
  *   GET  ?action=state&team=NAME            -> team's live state + current clue
  *   POST action=join&team=NAME              -> start the team (idempotent)
  *   POST action=checkin&team=NAME&code=TOK  -> scan a location QR
@@ -34,10 +35,11 @@ const STATUS = {
   FINISHED: 'Finished'
 };
 
-const TEAM_COLS = ['Status', 'Current Index', 'Current Location', 'Started At', 'Finished At', 'Last Update'];
+const TEAM_COLS = ['Status', 'Current Index', 'Current Location', 'Started At', 'Finished At', 'Last Update', 'Last Cleared At', 'Selfie File ID'];
 const LOC_COLS = ['QR Required', 'QR Token', 'Task Text', 'Check-in URL', 'QR Code'];
 const APPROVAL_HEADERS = ['Submitted', 'Team', 'Stop #', 'Location', 'Kind', 'File', 'Preview', 'Status', 'Note to team', 'Decided', 'Upload ID'];
 const MEDIA_TYPES = ['photo', 'video'];
+const UPLOAD_TYPES = ['photo', 'video', 'end']; // 'end' = the crew selfie at the final stop
 const DEFAULT_PAGES_URL = 'https://sdhubj.github.io/Annie-Sam-Treasure-Hunt-2026/';
 const CACHE_SECONDS = 120;
 
@@ -58,7 +60,8 @@ function handle_(e, isPost) {
 
     switch (action) {
       case 'ping':    out = { ok: true, message: 'Treasure hunt API is running.' }; break;
-      case 'teams':   out = { ok: true, teams: listTeams_() }; break;
+      case 'teams':   out = { ok: true, teams: listTeams_(), captains: captains_() }; break;
+      case 'leaderboard': out = leaderboard_(); break;
       case 'state':   out = getState_(p.team); break;
       case 'join':    out = join_(p.team); break;
       case 'checkin': out = checkin_(p.team, p.code); break;
@@ -107,7 +110,10 @@ function join_(team) {
 function getState_(team) {
   const t = requireTeam_(team);
   const st = t.get('Status');
-  if (st === STATUS.PENDING || st === STATUS.REJECTED) resolvePending_(t.name);
+  if (st === STATUS.PENDING || st === STATUS.REJECTED) {
+    resolvePending_(t.name);
+    CacheService.getScriptCache().remove('leaderboard');
+  }
   return buildState_(requireTeam_(team));
 }
 
@@ -141,7 +147,9 @@ function checkin_(team, code) {
     }
 
     if (loc.type === 'end') {
-      t.set({ 'Status': STATUS.FINISHED, 'Finished At': new Date(), 'Last Update': new Date() });
+      const done = { 'Status': STATUS.FINISHED, 'Last Update': new Date() };
+      if (!(t.get('Finished At') instanceof Date)) done['Finished At'] = new Date();
+      t.set(done);
       logRow_(t.name, 'finish', loc.name);
       return withMessage_(buildState_(t), 'You made it.', loc.name);
     }
@@ -175,7 +183,9 @@ function upload_(p) {
   }
 
   const mime = String(p.mimeType || '');
-  if (!/^(image|video)\//.test(mime)) throw userErr_('Send a photo or a video.');
+  const wantsVideo = loc.type === 'video';
+  if (wantsVideo && mime.indexOf('video/') !== 0) throw userErr_('This one needs a video.');
+  if (!wantsVideo && mime.indexOf('image/') !== 0) throw userErr_(loc.type === 'end' ? 'This one needs a crew selfie (a photo).' : 'This one needs a photo.');
   const data = String(p.data || '');
   if (!data) throw userErr_('The file arrived empty. Try again.');
 
@@ -213,12 +223,20 @@ function upload_(p) {
       preview, 'Pending', '', '', uploadId]);
     if (kind === 'photo') sh.setRowHeight(sh.getLastRow(), 140);
 
-    fresh.set({ 'Status': STATUS.PENDING, 'Last Update': new Date() });
+    const patch = { 'Status': STATUS.PENDING, 'Last Update': new Date() };
+    if (loc.type === 'end') {
+      // The clock stops when the selfie lands, not when it is approved. A retake keeps the first time.
+      if (!(fresh.get('Finished At') instanceof Date)) patch['Finished At'] = new Date();
+      patch['Selfie File ID'] = file.getId();
+    }
+    fresh.set(patch);
     logRow_(t.name, 'upload', loc.name + ' (' + kind + ', ' + uploadId + ')');
-    return withMessage_(buildState_(requireTeam_(p.team)), 'Sent. Waiting for the judges.');
+    CacheService.getScriptCache().remove('leaderboard');
+    return withMessage_(buildState_(requireTeam_(p.team)),
+      loc.type === 'end' ? 'Clock stopped. The judges are checking your selfie.' : 'Sent. Waiting for the judges.');
   });
 
-  notify_(cfg, t.name, idx + 1, loc.name, kind, url);
+  notify_(cfg, t.name, idx + 1, loc.name, loc.type === 'end' ? 'crew selfie (FINISH)' : kind, url);
   return result;
 }
 
@@ -230,7 +248,17 @@ function buildState_(t) {
   const path = requirePath_(t.name);
   const total = path.length;
   const status = t.get('Status') || STATUS.WAITING;
-  const base = { ok: true, team: t.name, total: total, status: status };
+  const start = huntStart_();
+  const base = { ok: true, team: t.name, total: total, status: status,
+    serverNow: new Date().toISOString(), huntStart: start ? start.toISOString() : null };
+  const fin = t.get('Finished At');
+  if (fin instanceof Date) {
+    base.finishedAt = fin.toISOString();
+    base.elapsedMs = start ? Math.max(0, fin.getTime() - start.getTime()) : null;
+    base.place = finishPlace_(t.name);
+  }
+  const selfie = String(t.get('Selfie File ID') || '');
+  if (selfie) base.selfieUrl = 'https://drive.google.com/thumbnail?id=' + selfie + '&sz=w900';
 
   if (status === STATUS.WAITING) {
     base.index = 0;
@@ -240,13 +268,12 @@ function buildState_(t) {
   if (status === STATUS.FINISHED) {
     base.index = total;
     base.finished = true;
-    base.place = finishPlace_(t.name);
     return base;
   }
 
   const idx = t.index();
   const loc = requireLocation_(path[idx]);
-  const media = MEDIA_TYPES.indexOf(loc.type) !== -1;
+  const media = UPLOAD_TYPES.indexOf(loc.type) !== -1;
   const unlocked = !loc.qr || status !== STATUS.HUNTING;
 
   base.index = idx;
@@ -269,7 +296,7 @@ function buildState_(t) {
 }
 
 function canUpload_(loc, status) {
-  if (MEDIA_TYPES.indexOf(loc.type) === -1) return false;
+  if (UPLOAD_TYPES.indexOf(loc.type) === -1) return false;
   if (status === STATUS.REJECTED) return true;
   if (loc.qr) return status === STATUS.ARRIVED;
   return status === STATUS.HUNTING;
@@ -289,8 +316,14 @@ function resolvePending_(teamName) {
     const a = latestApproval_(t.name, t.index() + 1);
     if (!a) return;
     const stopNo = t.index() + 1;
-    if (a.status === 'Approved') {
-      advance_(t, requirePath_(t.name));
+    const path = requirePath_(t.name);
+    const loc = requireLocation_(path[t.index()]);
+    if (a.status === 'Approved' && loc.type === 'end') {
+      t.set({ 'Status': STATUS.FINISHED, 'Last Update': new Date() });
+      stampDecision_(a.row);
+      logRow_(t.name, 'finish', 'Selfie approved');
+    } else if (a.status === 'Approved') {
+      advance_(t, path);
       stampDecision_(a.row);
       logRow_(t.name, 'approved', 'Stop ' + stopNo);
     } else if (a.status === 'Rejected' && current === STATUS.PENDING) {
@@ -307,7 +340,8 @@ function advance_(t, path) {
     'Status': STATUS.HUNTING,
     'Current Index': next,
     'Current Location': path[next] || '',
-    'Last Update': new Date()
+    'Last Update': new Date(),
+    'Last Cleared At': new Date()
   });
 }
 
@@ -554,6 +588,7 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Treasure Hunt')
     .addItem('Run setup (safe to re-run)', 'setup')
     .addItem('Refresh QR links', 'refreshQrLinks')
+    .addItem('Apply stop settings (v2: selfie finish)', 'applyStopSettings')
     .addItem('Clear cache (after editing clues/paths)', 'clearCache')
     .addSeparator()
     .addItem('Reset ALL progress (testing only)', 'resetAllProgressWithConfirm')
@@ -619,7 +654,7 @@ function setup() {
     locs.getRange(row, typeCol + 1).setValue(type);
 
     if (!lv[i][lh['QR Required']]) {
-      const needsQr = type === 'answer' || type === 'end' || /basketball|saint monday/i.test(name);
+      const needsQr = type === 'answer' || /basketball|saint monday/i.test(name);
       locs.getRange(row, lh['QR Required'] + 1).setValue(needsQr ? 'YES' : 'NO');
     }
     if (!lv[i][lh['Task Text']] && /basketball/i.test(name)) {
@@ -708,7 +743,8 @@ function resetAllProgress() {
       const row = i + 1;
       teams.getRange(row, th['Status'] + 1).setValue(STATUS.WAITING);
       teams.getRange(row, th['Current Index'] + 1).setValue(0);
-      ['Current Location', 'Started At', 'Finished At', 'Last Update'].forEach(function (c) {
+      ['Current Location', 'Started At', 'Finished At', 'Last Update', 'Last Cleared At', 'Selfie File ID'].forEach(function (c) {
+        if (th[c] === undefined) return;
         teams.getRange(row, th[c] + 1).setValue('');
       });
     }
@@ -767,4 +803,122 @@ function validatePaths_() {
     if (last && last.type !== 'end') problems.push(team + ': last stop is not the "end" location');
   });
   return problems;
+}
+
+/* ------------------------------------------------------------------ */
+/* Leaderboard and shared clock                                        */
+/* ------------------------------------------------------------------ */
+
+/** The shared clock starts when the first crew taps Start hunting. */
+function huntStart_() {
+  const vals = sheet_(SHEETS.TEAMS).getDataRange().getValues();
+  const h = indexHeaders_(vals[0]);
+  let min = null;
+  for (let i = 1; i < vals.length; i++) {
+    const v = vals[i][h['Started At']];
+    if (v instanceof Date && (min === null || v < min)) min = v;
+  }
+  return min;
+}
+
+function captains_() {
+  const vals = sheet_(SHEETS.TEAMS).getDataRange().getValues();
+  const h = indexHeaders_(vals[0]);
+  const out = {};
+  if (h['Captain'] === undefined) return out;
+  for (let i = 1; i < vals.length; i++) {
+    const name = String(vals[i][h['Team Name']] || '').trim();
+    if (name) out[name] = String(vals[i][h['Captain']] || '').trim();
+  }
+  return out;
+}
+
+function leaderboard_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('leaderboard');
+  if (hit) {
+    const data = JSON.parse(hit);
+    data.serverNow = new Date().toISOString();
+    return data;
+  }
+  const vals = sheet_(SHEETS.TEAMS).getDataRange().getValues();
+  const h = indexHeaders_(vals[0]);
+  const paths = paths_();
+  const start = huntStart_();
+  const rows = [];
+  for (let i = 1; i < vals.length; i++) {
+    const r = vals[i];
+    const name = String(r[h['Team Name']] || '').trim();
+    if (!name) continue;
+    const path = paths[norm_(name)] || [];
+    const status = String(r[h['Status']] || STATUS.WAITING);
+    const fin = r[h['Finished At']];
+    const lastCleared = h['Last Cleared At'] !== undefined ? r[h['Last Cleared At']] : '';
+    const idx = Number(r[h['Current Index']]) || 0;
+    const finishedAt = fin instanceof Date ? fin : null;
+    rows.push({
+      team: name,
+      total: path.length,
+      cleared: finishedAt ? path.length : (status === STATUS.WAITING ? 0 : idx),
+      status: status,
+      finished: status === STATUS.FINISHED,
+      checking: !!finishedAt && status !== STATUS.FINISHED,
+      finishedAt: finishedAt ? finishedAt.toISOString() : null,
+      elapsedMs: finishedAt && start ? Math.max(0, finishedAt.getTime() - start.getTime()) : null,
+      _last: lastCleared instanceof Date ? lastCleared.getTime() : Number.MAX_SAFE_INTEGER
+    });
+  }
+  rows.sort(function (a, b) {
+    if (a.finishedAt && b.finishedAt) return a.finishedAt < b.finishedAt ? -1 : 1;
+    if (a.finishedAt) return -1;
+    if (b.finishedAt) return 1;
+    if (b.cleared !== a.cleared) return b.cleared - a.cleared;
+    return a._last - b._last; // same count: whoever got there first ranks higher
+  });
+  rows.forEach(function (r, i) { r.rank = i + 1; delete r._last; });
+  const out = { ok: true, huntStart: start ? start.toISOString() : null, serverNow: new Date().toISOString(), teams: rows };
+  cache.put('leaderboard', JSON.stringify(out), 10);
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* v2 stop settings: run once from the Treasure Hunt menu              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Album cover (Basketball Court) = photo, bubblegum (So Local) = video,
+ * Saint Monday = the bartender's QR clears it,
+ * The Perseverance = crew selfie finish (no QR).
+ */
+function applyStopSettings() {
+  const locs = sheet_(SHEETS.LOCS);
+  ensureHeaders_(locs, LOC_COLS);
+  ensureHeaders_(sheet_(SHEETS.TEAMS), TEAM_COLS);
+  const lv = locs.getDataRange().getValues();
+  const lh = indexHeaders_(lv[0]);
+  const nameCol = findCol_(lh, 'Location Name');
+  const typeCol = findCol_(lh, 'Validation Type');
+  const rules = [
+    { match: /so local/i, type: 'video', qr: 'NO' },
+    { match: /basketball/i, type: 'photo', qr: 'YES' },
+    { match: /saint monday/i, type: 'answer', qr: 'YES' },
+    { match: /perseverance/i, type: 'end', qr: 'NO',
+      task: 'One selfie. Whole crew in it. Banana hat on the captain.\nThe clock stops when it lands.' }
+  ];
+  for (let i = 1; i < lv.length; i++) {
+    const name = String(lv[i][nameCol] || '');
+    const rule = rules.filter(function (r) { return r.match.test(name); })[0];
+    if (!rule) continue;
+    locs.getRange(i + 1, typeCol + 1).setValue(rule.type);
+    locs.getRange(i + 1, lh['QR Required'] + 1).setValue(rule.qr);
+    if (rule.task) locs.getRange(i + 1, lh['Task Text'] + 1).setValue(rule.task);
+    if (!lv[i][lh['QR Token']]) locs.getRange(i + 1, lh['QR Token'] + 1).setValue(newToken_());
+  }
+  refreshQrLinks();
+  clearCache();
+  CacheService.getScriptCache().remove('leaderboard');
+  const problems = validatePaths_();
+  const msg = problems.length ? 'Applied, but check: ' + problems.join('; ') : 'Stop settings applied.';
+  console.log(msg);
+  return msg;
 }

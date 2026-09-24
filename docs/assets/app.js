@@ -4,6 +4,8 @@
   const TEAM_KEY = 'hunt2026.team';
   const PENDING_CODE_KEY = 'hunt2026.pendingCode';
   const FLASH_KEY = 'hunt2026.flash';
+  const SWITCH_KEY = 'hunt2026.switchesUsed';
+  const MAX_SWITCHES = 1;
 
   function apiReady() {
     return cfg.API_URL && cfg.API_URL.indexOf('PASTE_') !== 0;
@@ -48,6 +50,34 @@
     } catch (e) { return ''; }
   }
 
+  function switchesLeft() {
+    try { return Math.max(0, MAX_SWITCHES - (Number(localStorage.getItem(SWITCH_KEY)) || 0)); } catch (e) { return 0; }
+  }
+  function useSwitch() {
+    try { localStorage.setItem(SWITCH_KEY, String((Number(localStorage.getItem(SWITCH_KEY)) || 0) + 1)); } catch (e) {}
+  }
+
+  /* ---------- clock ---------- */
+
+  function fmtClock(ms) {
+    if (ms == null || isNaN(ms)) return '0:00:00';
+    const t = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+    return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  // Ticks a running clock from the shared hunt start, corrected for the phone's clock drift.
+  let clockTimer = null;
+  function runClock(node, huntStartIso, serverNowIso) {
+    clearInterval(clockTimer);
+    if (!huntStartIso) { node.textContent = '0:00:00'; return; }
+    const skew = serverNowIso ? new Date(serverNowIso).getTime() - Date.now() : 0;
+    const start = new Date(huntStartIso).getTime();
+    const tick = function () { node.textContent = fmtClock(Date.now() + skew - start); };
+    tick();
+    clockTimer = setInterval(tick, 1000);
+  }
+
   function setFlash(msg, kind) { try { sessionStorage.setItem(FLASH_KEY, JSON.stringify({ msg: msg, kind: kind || 'ok' })); } catch (e) {} }
   function takeFlash() {
     try {
@@ -67,6 +97,11 @@
     });
     (children || []).forEach(function (c) { if (c) node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
     return node;
+  }
+
+  function ordinal(n) {
+    const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
   }
 
   function renderDots(container, index, total, finished) {
@@ -122,11 +157,13 @@
     });
   }
 
-  async function prepareUpload(file) {
+  async function prepareUpload(file, kind) {
     const maxMb = cfg.MAX_UPLOAD_MB || 30;
     let out = { blob: file, type: file.type || '', name: file.name || 'upload' };
     if (/^image\//.test(out.type)) out = await compressImage(file);
     if (!/^(image|video)\//.test(out.type)) throw new Error('That file is not a photo or video.');
+    if (kind === 'video' && !/^video\//.test(out.type)) throw new Error('This one needs a video.');
+    if (kind !== 'video' && !/^image\//.test(out.type)) throw new Error('This one needs a photo.');
     if (out.blob.size > maxMb * 1024 * 1024) {
       throw new Error('That file is ' + (out.blob.size / 1048576).toFixed(0) + 'MB. The limit is ' + maxMb + 'MB. Record something shorter and try again.');
     }
@@ -138,6 +175,8 @@
     getTeam: getTeam, setTeam: setTeam, clearTeam: clearTeam,
     setPendingCode: setPendingCode, takePendingCode: takePendingCode,
     setFlash: setFlash, takeFlash: takeFlash,
+    switchesLeft: switchesLeft, useSwitch: useSwitch,
+    fmtClock: fmtClock, runClock: runClock, ordinal: ordinal,
     el: el, renderDots: renderDots, prepareUpload: prepareUpload
   };
 })();

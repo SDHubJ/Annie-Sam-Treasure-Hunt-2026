@@ -12,6 +12,7 @@ Saturday 26 September, 7pm, starting at Pub on the Park, London Fields.
   index.html           join page (the hidden QR at Pub on the Park opens this)
   hunt.html            live clue page (reads state from the backend, polls)
   checkin.html         landing page for every location QR (?c=<token>)
+  leaderboard.html     crews' progress, finish times, live hunt clock
   assets/config.js     <- paste your Apps Script URL here
   assets/app.js        API calls, photo compression, helpers
   assets/style.css
@@ -28,17 +29,21 @@ served one stop at a time. The repo can stay public.
 ## How it plays
 
 1. Everyone scans the hidden start QR at Pub on the Park, which opens the join page.
-2. They pick their crew. The phone remembers it (localStorage), and the Sheet holds the progress, so every
-   phone in a crew shows the same clue.
-3. Each clue is the text from column D of **3. Locations**, shown in the team's route order.
-4. **QR stops** (Brat, Plonk, Netil 360, Auguste, Playground): scanning the hidden QR clears the stop and shows
-   the next clue immediately. A QR scanned out of order is rejected, and the team's route isn't revealed.
-5. **So Local:** the upload buttons appear with the clue. The team sends a photo or video, you approve it in
-   the Sheet, and the next clue appears on their phones within about 7 seconds.
-6. **Basketball Court:** the team finds the vinyl and scans its QR. That shows the task and unlocks the upload.
-   **Saint Monday:** the team orders Bucky bombs, the bartender shows them the QR, and scanning it unlocks the
-   video upload. Approval then works as above.
-7. **The Perseverance:** scanning the final QR stamps the finish time. The first crew in is 1st.
+2. They pick their crew, confirm it, and tick that the captain is wearing the banana hat. Each phone can
+   switch crews once. The Sheet holds the progress, so every phone in a crew shows the same clue.
+3. Each clue is the text from column D of **3. Locations**, shown in the crew's route order.
+4. **QR stops** (Brat, Plonk, Netil 360, Auguste, Playground, and Saint Monday, where the bartender hands
+   over the QR after the Bucky bombs): scanning the QR clears the stop and shows the next clue immediately.
+   Out-of-order scans are rejected without revealing the route.
+5. **So Local (bubblegum):** video only, uploaded straight from the clue. You approve it in the Sheet, and
+   the next clue appears on the crew's phones within about 7 seconds.
+6. **Basketball Court (album cover):** the crew scans the QR on the vinyl, then uploads a photo (photo only).
+   Approval works as above.
+7. **The Perseverance:** no QR. The final task is a selfie of the whole crew. The clock stops the moment the
+   selfie uploads, and you approve it to confirm the finish. A rejected selfie means a retake, but the
+   crew's time stands.
+8. **Leaderboard** (`leaderboard.html`, linked from every page): shows each crew's stops cleared and finish
+   time, plus a hunt clock that starts when the first crew taps Start hunting.
 
 ---
 
@@ -62,7 +67,7 @@ You don't paste anything by hand. The setup script in step 2 adds everything:
 | Config (new) | Settings, plus the start QR for Pub on the Park. |
 
 The **QR Required** column controls whether a stop needs a scan. Setup sets it to YES for answer stops, the
-Basketball Court, Saint Monday and The Perseverance, and NO for So Local. You can change any of these.
+Basketball Court and Saint Monday, and NO for So Local and The Perseverance. You can change any of these.
 
 ### 2. Add the Apps Script
 
@@ -79,8 +84,11 @@ Basketball Court, Saint Monday and The Perseverance, and NO for So Local. You ca
    instead (for example, a stop name that doesn't match the Locations tab), fix the Sheet and run `setup`
    again. It's safe to re-run.
 
-Reload the Sheet. You'll now have a **Treasure Hunt** menu with Run setup, Refresh QR links, Clear cache,
-and Reset all progress.
+Then choose **`applyStopSettings`** in the same dropdown and click **Run**. This sets the stop types: So Local
+is video, the Basketball Court is photo, Saint Monday is a QR stop, and The Perseverance is the selfie finish.
+
+Reload the Sheet. You'll now have a **Treasure Hunt** menu with Run setup, Refresh QR links, Apply stop
+settings, Clear cache, and Reset all progress.
 
 ### 3. Deploy the backend
 
@@ -109,7 +117,8 @@ the old one.
 
 - **Start QR (Pub on the Park):** Config tab, `START_QR` row.
 - **Location QRs:** Locations tab, `QR Code` column. There's one per stop that needs a scan, including the
-  Basketball Court vinyl, the Saint Monday bartender's code and The Perseverance.
+  Basketball Court vinyl and the Saint Monday bartender's code. The Perseverance has none; the selfie
+  replaces it.
 
 To print one full-size, right-click the image in the Sheet, or open its `Check-in URL` in any QR generator.
 Scan each printed code with your phone before you hide it: joining any team should take you to the check-in
