@@ -46,4 +46,124 @@
   </div>
 
   <h1 class="title">The <span class="hl">Gallery</span></h1>
-  <p class="dim" id="count"
+  <p class="dim" id="count" style="margin: -6px 0 0; font-weight: 500;">Loading…</p>
+
+  <div class="chips" id="chips" role="group" aria-label="Filter"></div>
+
+  <ul class="grid" id="grid" aria-live="polite"></ul>
+  <p class="notice bad" id="msg" role="status"></p>
+</main>
+</div>
+
+<dialog id="viewer" aria-labelledby="viewer-title">
+  <div class="bar-top">
+    <strong id="viewer-title"></strong>
+    <button class="close" id="close" type="button">Close</button>
+  </div>
+  <div id="viewer-body"></div>
+</dialog>
+
+<script src="assets/config.js?v=2"></script>
+<script src="assets/app.js?v=2"></script>
+<script>
+(function () {
+  const $ = function (id) { return document.getElementById(id); };
+  const el = Hunt.el;
+  let items = [];
+  let filter = 'All';
+  let timer = null;
+
+  const thumb = function (id, w) { return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w' + (w || 600); };
+  const preview = function (id) { return 'https://drive.google.com/file/d/' + encodeURIComponent(id) + '/preview'; };
+  const timeOf = function (iso) { return iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''; };
+
+  function renderChips() {
+    const teams = Array.from(new Set(items.map(function (i) { return i.team; }))).sort();
+    const options = ['All', 'Crew selfies', 'Videos', 'Photos'].concat(teams);
+    if (options.indexOf(filter) === -1) filter = 'All';
+    const chips = $('chips');
+    chips.innerHTML = '';
+    options.forEach(function (o) {
+      chips.appendChild(el('button', { class: 'chip', type: 'button', 'aria-pressed': String(o === filter), text: o,
+        onclick: function () { filter = o; renderChips(); renderGrid(); } }));
+    });
+  }
+
+  function visible() {
+    return items.filter(function (i) {
+      if (filter === 'All') return true;
+      if (filter === 'Crew selfies') return i.kind === 'selfie';
+      if (filter === 'Videos') return i.kind === 'video';
+      if (filter === 'Photos') return i.kind === 'photo';
+      return i.team === filter;
+    });
+  }
+
+  function renderGrid() {
+    const list = visible();
+    $('count').textContent = items.length
+      ? items.length + (items.length === 1 ? ' upload' : ' uploads') + ' so far. Updates by itself.'
+      : 'Nothing yet. Photos and videos appear here as crews send them.';
+    const grid = $('grid');
+    grid.innerHTML = '';
+    list.forEach(function (i) {
+      const img = el('img', { src: thumb(i.id), alt: i.label + ' by ' + i.team, loading: 'lazy' });
+      img.addEventListener('error', function () { img.remove(); });
+      const kids = [img];
+      if (i.kind === 'video') {
+        kids.push(el('span', { class: 'play', 'aria-hidden': 'true' }, [svgPlay()]));
+      }
+      grid.appendChild(el('li', { class: 'tile' }, [
+        el('button', { class: 'media', type: 'button', 'aria-label': 'Open ' + i.label + ' by ' + i.team, onclick: function () { open(i); } }, kids),
+        el('div', { class: 'meta' }, [el('strong', { text: i.team }), el('span', { text: i.label + ' · ' + timeOf(i.time) })]),
+        i.kind === 'selfie' ? el('span', { class: 'tag', text: 'FINISH' }) : null
+      ]));
+    });
+  }
+
+  function svgPlay() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('width', '20'); svg.setAttribute('height', '20'); svg.setAttribute('viewBox', '0 0 20 20');
+    const p = document.createElementNS(ns, 'path');
+    p.setAttribute('d', 'M6 3 L17 10 L6 17 Z'); p.setAttribute('fill', '#22101F');
+    svg.appendChild(p);
+    return svg;
+  }
+
+  function open(i) {
+    $('viewer-title').textContent = i.team + ' · ' + i.label;
+    const body = $('viewer-body');
+    body.innerHTML = '';
+    if (i.kind === 'video') {
+      body.appendChild(el('iframe', { class: 'frame', src: preview(i.id), allow: 'autoplay; fullscreen', allowfullscreen: true, title: i.label + ' by ' + i.team }));
+    } else {
+      body.appendChild(el('img', { class: 'frame', src: thumb(i.id, 1600), alt: i.label + ' by ' + i.team }));
+    }
+    $('viewer').showModal();
+  }
+
+  $('close').addEventListener('click', function () { $('viewer').close(); });
+  $('viewer').addEventListener('close', function () { $('viewer-body').innerHTML = ''; });
+  $('viewer').addEventListener('click', function (e) { if (e.target === $('viewer')) $('viewer').close(); });
+
+  async function load() {
+    try {
+      const d = await Hunt.get('gallery');
+      $('msg').textContent = '';
+      const changed = JSON.stringify(d.items) !== JSON.stringify(items);
+      items = d.items;
+      if (changed) { renderChips(); renderGrid(); }
+    } catch (e) {
+      $('msg').textContent = e.message;
+    }
+    clearTimeout(timer);
+    timer = setTimeout(load, 30000);
+  }
+
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) load(); });
+  load();
+})();
+</script>
+</body>
+</html>
